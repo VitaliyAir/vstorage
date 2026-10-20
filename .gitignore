@@ -1,0 +1,27 @@
+# Build output
+bin/
+obj/
+TestResults/
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.user
+*.suo
+
+# Runtime data - NEVER commit (uploaded blobs, Data Protection keys, logs)
+data/
+keys/
+logs/
+
+# Local secrets / configuration
+.env
+secrets.json
+*.pfx
+*.pem
+*.key
+appsettings.Local.json
+
+# OS
+Thumbs.db
+.DS_Store

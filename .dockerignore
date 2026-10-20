@@ -1,0 +1,11 @@
+# Build context of src/VStorage.Api/Dockerfile (the solution folder): only the API projects are needed.
+# data/ and keys/ hold the stored files and keys: never copied into an image (they are mounted at run time).
+**/bin/
+**/obj/
+**/logs/
+.vs/
+.git/
+data/
+keys/
+tests/
+TestResults/
