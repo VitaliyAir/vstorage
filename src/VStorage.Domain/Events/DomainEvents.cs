@@ -25,6 +25,8 @@ namespace VStorage.Domain.Events
 
     public sealed record ObjectVisibilityChanged(Guid ObjectId, Guid BucketId, Visibility Visibility) : IDomainEvent;
 
+    public sealed record ObjectRenamed(Guid ObjectId, Guid BucketId, string OldKey, string NewKey) : IDomainEvent;
+
     public sealed record ShareLinkCreated(Guid ShareLinkId, Guid ObjectId, ShareLinkKind Kind, Guid CreatedBy) : IDomainEvent;
 
     /// <param name="PrincipalId">The signed-in recipient of an addressed link; null for a public link.</param>

@@ -7,7 +7,7 @@ using VStorage.Domain.Objects;
 
 namespace VStorage.Application.Features.Objects
 {
-    /// <summary>Visibility change (FR-O12) and delete (FR-O13) of objects.</summary>
+    /// <summary>Visibility change (FR-O12), delete (FR-O13) and key rename of objects.</summary>
     public sealed class ObjectCommandService(IVStorageDbContext db, IClock clock)
     {
         /// <summary>Only the object's owner; private → shared when the shared key is free; shared → private is forbidden.</summary>
@@ -106,6 +106,98 @@ namespace VStorage.Application.Features.Objects
             await db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return Result.Success();
+        }
+
+        /// <summary>
+        /// New keys for several of the caller's own objects in one transaction (all or nothing), e.g. when a client
+        /// renames or moves a folder of its own tree. Ids that are not available objects of the caller are skipped.
+        /// </summary>
+        public async Task<Result<RenameObjectsResult>> RenameAsync(
+            CurrentPrincipal caller, Guid bucketId, RenameObjectsRequest request, CancellationToken cancellationToken)
+        {
+            var items = request.Items ?? [];
+            if (items.Count is 0 or > ObjectAccessErrors.MaxRenameItems)
+            {
+                return ObjectAccessErrors.RenameCount;
+            }
+
+            var newKeys = new Dictionary<Guid, ObjectKey>();
+            foreach (var item in items)
+            {
+                var key = ObjectKey.Create(item.Key);
+                if (key.IsFailure)
+                {
+                    return key.Error;
+                }
+
+                if (!newKeys.TryAdd(item.ObjectId, key.Value))
+                {
+                    return ObjectAccessErrors.RenameDuplicate;
+                }
+            }
+
+            if (newKeys.Values.Distinct().Count() != newKeys.Count)
+            {
+                return ObjectAccessErrors.RenameDuplicate;
+            }
+
+            var bucket = await db.FindBucketAsync(bucketId, cancellationToken);
+            var role = bucket?.RoleOf(caller.Id);
+            var access = BucketStore.Check(role, BucketPermissions.CanUpload(role));
+            if (access.IsFailure)
+            {
+                return access.Error;
+            }
+
+            var ids = newKeys.Keys.ToList();
+            var objects = await db.Objects
+                .Where(o => o.BucketId == bucketId && ids.Contains(o.Id) && o.OwnerId == caller.Id && o.Status == ObjectStatus.Available)
+                .ToListAsync(cancellationToken);
+
+            // A new key must be free in its scope (own private objects / shared objects), apart from objects of this request.
+            var targetKeys = objects.Select(o => newKeys[o.Id]).ToList();
+            var holders = await db.Objects.AsNoTracking()
+                .Where(o => o.BucketId == bucketId
+                    && o.Status == ObjectStatus.Available
+                    && !ids.Contains(o.Id)
+                    && targetKeys.Contains(o.Key)
+                    && (o.Visibility == Visibility.Shared || o.OwnerId == caller.Id))
+                .Select(o => new { o.Key, o.Visibility })
+                .ToListAsync(cancellationToken);
+            var taken = objects
+                .Where(o => holders.Any(h => h.Key == newKeys[o.Id] && h.Visibility == o.Visibility))
+                .Select(o => newKeys[o.Id].Value)
+                .ToList();
+            if (taken.Count > 0)
+            {
+                return ObjectAccessErrors.RenameKeysTaken(taken);
+            }
+
+            var renamed = 0;
+            var now = clock.UtcNow;
+            foreach (var storedObject in objects)
+            {
+                var result = storedObject.Rename(newKeys[storedObject.Id], now);
+                if (result.IsFailure)
+                {
+                    return result.Error;
+                }
+
+                renamed += result.Value ? 1 : 0;
+            }
+
+            try
+            {
+                await db.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateException)
+            {
+                // Unique key index: e.g. two objects of the request swapping keys, or a parallel upload took a key.
+                db.ChangeTracker.Clear();
+                return ObjectErrors.KeyExists;
+            }
+
+            return new RenameObjectsResult(renamed, objects.Count - renamed, ids.Except(objects.Select(o => o.Id)).ToList());
         }
 
         // Tracked object that the caller may see, plus the caller's bucket role.

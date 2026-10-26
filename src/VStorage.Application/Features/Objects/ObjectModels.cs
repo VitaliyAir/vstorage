@@ -49,8 +49,22 @@ namespace VStorage.Application.Features.Objects
 
     public sealed record ChangeVisibilityRequest(string? Visibility);
 
+    /// <param name="Items">1..1000 objects with their new keys.</param>
+    public sealed record RenameObjectsRequest(IReadOnlyList<RenameObjectItem>? Items);
+
+    public sealed record RenameObjectItem(Guid ObjectId, string? Key);
+
+    /// <param name="Missing">Ids that are not available objects of the caller in this bucket (skipped).</param>
+    public sealed record RenameObjectsResult(int Renamed, int Unchanged, IReadOnlyList<Guid> Missing);
+
     public static class ObjectAccessErrors
     {
+        public const int MaxRenameItems = 1000;
+
+        public static readonly Error RenameCount = Error.Validation("rename-count", $"Give 1 to {MaxRenameItems} objects to rename.");
+
+        public static readonly Error RenameDuplicate = Error.Validation("rename-duplicate", "Each object and each new key may appear only once.");
+
         public static readonly Error InvalidVisibility = Error.Validation("invalid-visibility", "Visibility must be 'shared' or 'private'.");
 
         public static readonly Error Forbidden = Error.Forbidden("forbidden", "Your role in this bucket does not allow this action on the object.");
@@ -59,6 +73,9 @@ namespace VStorage.Application.Features.Objects
             "precondition-failed", "The If-Match / If-None-Match condition is not met for this key.");
 
         public static Error TooLarge(long maxBytes) => Error.TooLarge("too-large", $"Uploads are limited to {maxBytes} bytes.");
+
+        public static Error RenameKeysTaken(IReadOnlyList<string> keys) => Error.Conflict(
+            "key-exists", $"Other objects already use these keys: {string.Join(", ", keys.Take(5))}{(keys.Count > 5 ? " …" : "")}. Nothing was renamed.");
     }
 
     internal static class ObjectMapping

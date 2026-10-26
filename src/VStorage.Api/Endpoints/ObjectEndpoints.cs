@@ -37,6 +37,9 @@ namespace VStorage.Api.Endpoints
                 .Produces<ObjectDto>();
             inBucket.MapMethods("/content", GetAndHead, DownloadByKey)
                 .WithSummary("Download by key (own private first, then shared); ?disposition=inline for safe types");
+            inBucket.MapPost("/rename", Rename)
+                .WithSummary("New keys for 1..1000 own objects in one step (all or nothing); ids that are not yours are reported as missing")
+                .Produces<RenameObjectsResult>();
 
             var objects = api.MapGroup("/objects").WithTags("Objects");
             objects.MapGet("/{objectId:guid}", GetMetadata).WithSummary("Object metadata").Produces<ObjectDto>();
@@ -164,6 +167,10 @@ namespace VStorage.Api.Endpoints
 
         private static async Task<IResult> Delete(Guid objectId, HttpContext http, ObjectCommandService commands, CancellationToken cancellationToken) =>
             (await commands.DeleteAsync(http.RequireCurrentPrincipal(), objectId, cancellationToken)).ToHttp();
+
+        private static async Task<IResult> Rename(
+            Guid bucketId, RenameObjectsRequest request, HttpContext http, ObjectCommandService commands, CancellationToken cancellationToken) =>
+            (await commands.RenameAsync(http.RequireCurrentPrincipal(), bucketId, request, cancellationToken)).ToHttp();
 
         // 201 for a new key, 200 for an identical existing object or an overwrite; ETag = SHA-256 (FR-O5).
         private static IResult ToResponse(Result<UploadOutcome> result, HttpContext http)

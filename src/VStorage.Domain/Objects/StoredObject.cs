@@ -162,9 +162,41 @@ namespace VStorage.Domain.Objects
             return Result.Success();
         }
 
+        /// <summary>
+        /// A new key (a client renamed or moved a folder). The blob does not move: it is stored by id.
+        /// The download name follows when it was the key's last segment.
+        /// Returns false when the key is already <paramref name="key"/>. The caller checks that the key is free.
+        /// </summary>
+        public Result<bool> Rename(ObjectKey key, DateTimeOffset now)
+        {
+            if (Status != ObjectStatus.Available)
+            {
+                return ObjectErrors.NotAvailable;
+            }
+
+            if (Key == key)
+            {
+                return false;
+            }
+
+            var oldKey = Key.Value;
+            Key = key;
+            // The download name follows the key when it was the key's last segment (a client renamed the file itself).
+            if (OriginalFileName != null && OriginalFileName == LastSegment(oldKey))
+            {
+                OriginalFileName = LastSegment(key.Value);
+            }
+
+            UpdatedAt = now;
+            Raise(new ObjectRenamed(Id, BucketId, oldKey, key.Value));
+            return true;
+        }
+
         /// <summary>Visibility rule only (shared, or own private); bucket membership is checked separately.</summary>
         public bool IsVisibleTo(Guid principalId) =>
             Status == ObjectStatus.Available && (Visibility == Visibility.Shared || OwnerId == principalId);
+
+        private static string LastSegment(string key) => key[(key.LastIndexOf('/') + 1)..];
 
         // Keeps only the last path component of a client-supplied file name ("C:\docs\a.pdf" -> "a.pdf").
         private static string? NormalizeFileName(string? fileName)

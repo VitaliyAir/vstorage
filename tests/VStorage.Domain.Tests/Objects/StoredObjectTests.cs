@@ -112,6 +112,28 @@ namespace VStorage.Domain.Tests.Objects
             storedObject.DomainEvents.Should().BeEmpty();
         }
 
+        [Fact]
+        public void Rename_moves_the_download_name_along_when_it_was_the_last_key_segment()
+        {
+            var storedObject = Available(Visibility.Private);
+
+            storedObject.Rename(Key("photos/dog.png"), Now).Value.Should().BeTrue();
+
+            storedObject.OriginalFileName.Should().Be("dog.png");
+            storedObject.DomainEvents.OfType<ObjectRenamed>().Should().ContainSingle();
+        }
+
+        [Fact]
+        public void Rename_keeps_a_download_name_that_differs_from_the_key()
+        {
+            var storedObject = StoredObject.BeginUpload(Bucket, Key("photos/cat.png"), Owner, Visibility.Private, "image/png", "original.png", Now).Value;
+            storedObject.Complete(1, Sha, Now);
+
+            storedObject.Rename(Key("photos/dog.png"), Now);
+
+            storedObject.OriginalFileName.Should().Be("original.png");
+        }
+
         private static ObjectKey Key(string value) => ObjectKey.Create(value).Value;
 
         private static StoredObject Begin(Visibility visibility, string? contentType = "image/png", string? fileName = "cat.png") =>
